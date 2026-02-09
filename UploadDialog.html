@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f7fa;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        padding: 20px;
+      }
+
+      .card {
+        background: #ffffff;
+        border-radius: 8px;
+        padding: 24px 28px;
+        width: 100%;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        text-align: center;
+      }
+
+      h2 {
+        margin-top: 0;
+        margin-bottom: 12px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: #555;
+        font-size: 13px;
+      }
+
+      /* Wrap file input in a div to center it */
+      .file-wrapper {
+        display: flex;
+        justify-content: center;  /* center horizontally */
+        margin: 12px 0 20px;
+      }
+
+      input[type="file"] {
+        display: inline-block;
+      }
+
+      button {
+        background: #1a73e8;
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+        width: 220px; /* same width as before */
+        display: block;
+        margin: 0 auto; /* center horizontally */
+      }
+
+      button:hover {
+        background: #1558b0;
+      }
+
+      #loading {
+        display: none;
+        margin-top: 20px;
+      }
+
+      .spinner {
+        margin: 0 auto 10px;
+        width: 36px;
+        height: 36px;
+        border: 4px solid #ddd;
+        border-top: 4px solid #1a73e8;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      .loading-text {
+        font-size: 13px;
+        color: #555;
+      }
+
+      /* Table for displaying mismatches */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+      }
+
+      th, td {
+        border: 1px solid #ccc;
+        padding: 6px 8px;
+        font-size: 12px;
+        text-align: left;
+      }
+
+      th {
+        background-color: #000;
+        color: #fff;
+      }
+
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h2>Network CSV Comparison</h2>
+        <p>Select the 3 CSV files to compare</p>
+
+        <div class="file-wrapper">
+          <input type="file" id="files" accept=".csv" multiple>
+        </div>
+
+        <button onclick="submitFiles()">Run Comparison</button>
+
+        <div id="loading">
+          <div class="spinner"></div>
+          <div class="loading-text">Processing files…</div>
+        </div>
+
+        <div id="results"></div>
+      </div>
+    </div>
+
+    <script>
+      function submitFiles() {
+        const input = document.getElementById('files');
+        if (input.files.length !== 3) {
+          alert('Please select exactly 3 CSV files.');
+          return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('results').innerHTML = '';
+
+        const readers = [];
+        for (let i = 0; i < input.files.length; i++) {
+          readers.push(new Promise(resolve => {
+            const reader = new FileReader();
+            reader.onload = e => resolve({
+              name: input.files[i].name,
+              content: e.target.result
+            });
+            reader.readAsText(input.files[i]);
+          }));
+        }
+
+        Promise.all(readers).then(files => {
+          google.script.run
+            .withSuccessHandler(displayResults)
+            .withFailureHandler(err => {
+              document.getElementById('loading').style.display = 'none';
+              alert(err.message);
+            })
+            .processFilesForWeb(files); // NEW function to return results as JSON
+        });
+      }
+
+      function displayResults(mismatches) {
+        document.getElementById('loading').style.display = 'none';
+
+        if (!mismatches || mismatches.length === 0) {
+          document.getElementById('results').innerHTML = '<p>No mismatches found.</p>';
+          return;
+        }
+
+        let html = '<table><tr><th>IP Address</th><th>Master Name</th><th>UniFi Name</th><th>OVRC Name</th><th>Master MAC</th><th>UniFi MAC</th><th>OVRC MAC</th></tr>';
+
+        mismatches.forEach(r => {
+          html += `<tr style="background-color:${getColor(r, 'master')}">
+            <td>${r.ip}</td>
+            <td style="background-color:${getColor(r,'master')}">${r.m.name}</td>
+            <td style="background-color:${getColor(r,'u')}">${r.u?.name ?? ''}</td>
+            <td style="background-color:${getColor(r,'o')}">${r.o?.name ?? ''}</td>
+            <td style="background-color:${getColor(r,'master')}">${r.m.mac}</td>
+            <td style="background-color:${getColor(r,'u')}">${r.u?.mac ?? ''}</td>
+            <td style="background-color:${getColor(r,'o')}">${r.o?.mac ?? ''}</td>
+          </tr>`;
+        });
+
+        html += '</table>';
+        document.getElementById('results').innerHTML = html;
+      }
+
+      function getColor(row, type) {
+        const COLORS = {
+          master: '#cfe2f3',
+          match:  '#cfe2f3',
+          mismatch: '#f4cccc',
+          missing: '#fff2cc'
+        };
+
+        if (type === 'master') return COLORS.master;
+        if (type === 'u') {
+          if (!row.u) return COLORS.missing;
+          return (row.u.name === row.m.name && row.u.mac === row.m.mac) ? COLORS.match : COLORS.mismatch;
+        }
+        if (type === 'o') {
+          if (!row.o) return COLORS.missing;
+          return (row.o.name === row.m.name && row.o.mac === row.m.mac) ? COLORS.match : COLORS.mismatch;
+        }
+        return '';
+      }
+    </script>
+  </body>
+</html>
