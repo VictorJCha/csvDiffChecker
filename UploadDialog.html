@@ -11,11 +11,8 @@
       }
 
       .container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
         padding: 20px;
+        overflow-x: auto;
       }
 
       .card {
@@ -23,7 +20,8 @@
         border-radius: 8px;
         padding: 24px 28px;
         width: 100%;
-        max-width: 400px;
+        max-width: 1400px;
+        margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         text-align: center;
       }
@@ -40,10 +38,9 @@
         font-size: 13px;
       }
 
-      /* Wrap file input in a div to center it */
       .file-wrapper {
         display: flex;
-        justify-content: center;  /* center horizontally */
+        justify-content: center;
         margin: 12px 0 20px;
       }
 
@@ -59,9 +56,9 @@
         border-radius: 4px;
         font-size: 14px;
         cursor: pointer;
-        width: 220px; /* same width as before */
+        width: 220px;
         display: block;
-        margin: 0 auto; /* center horizontally */
+        margin: 0 auto 12px auto;
       }
 
       button:hover {
@@ -93,7 +90,6 @@
         color: #555;
       }
 
-      /* Table for displaying mismatches */
       table {
         width: 100%;
         border-collapse: collapse;
@@ -105,18 +101,60 @@
         padding: 6px 8px;
         font-size: 12px;
         text-align: left;
+        white-space: nowrap;
       }
 
       th {
         background-color: #000;
         color: #fff;
+        position: sticky;      /* freeze the header row */
+        top: 0;                /* stick to the top of the table container */
+        z-index: 2;            /* ensure it stays above table cells */
+      }
+
+      #results {
+        overflow-x: auto;
+        max-height: 600px;
+        overflow-y: auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .legend {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: 12px;
+      }
+
+      .legend div {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .legend span.color-box {
+        width: 16px;
+        height: 16px;
+        display: inline-block;
+      }
+
+      /* Initially hidden */
+      #result-section {
+        display: none;
       }
 
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="card">
+      <!-- FILE UPLOAD CARD -->
+      <div class="card" id="upload-card">
         <h2>Network CSV Comparison</h2>
         <p>Select the 3 CSV files to compare</p>
 
@@ -130,10 +168,31 @@
           <div class="spinner"></div>
           <div class="loading-text">Processing files…</div>
         </div>
+      </div>
+
+      <!-- RESULTS SECTION -->
+      <!-- Results + header -->
+      <div class="card" id="resultsCard" style="display:none;">
+        <div class="header-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h3 id="resultsHeader">Comparison Results</h3> <!-- Add an id here -->
+          <button onclick="resetApp()" style="width:120px;">Reset</button>
+        </div>
+
+        <!-- Color legend -->
+        <div id="legend" style="display:flex; gap:15px; margin-bottom:10px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:5px;">
+            <div style="width:20px; height:20px; background-color:#cfe2f3;"></div> Matches NSS/Correct
+          </div>
+          <div style="display:flex; align-items:center; gap:5px;">
+            <div style="width:20px; height:20px; background-color:#f4cccc;"></div> Mismatch (Needs Correction)
+          </div>
+          <div style="display:flex; align-items:center; gap:5px;">
+            <div style="width:20px; height:20px; background-color:#fff2cc;"></div> Missing From Platform
+          </div>
+        </div>
 
         <div id="results"></div>
       </div>
-    </div>
 
     <script>
       function submitFiles() {
@@ -144,7 +203,6 @@
         }
 
         document.getElementById('loading').style.display = 'block';
-        document.getElementById('results').innerHTML = '';
 
         const readers = [];
         for (let i = 0; i < input.files.length; i++) {
@@ -163,13 +221,27 @@
             .withSuccessHandler(displayResults)
             .withFailureHandler(err => {
               document.getElementById('loading').style.display = 'none';
-              alert(err.message);
+              alert(err.message || err);
             })
-            .processFilesForWeb(files); // NEW function to return results as JSON
+            .processFilesForWeb(files);
         });
       }
 
+      // Update the header dynamically
+      google.script.run
+        .withSuccessHandler(name => {
+          const header = document.getElementById('resultsHeader');
+          header.textContent = `Comparison Results for '${name || "current project"}'`;
+        })
+        .withFailureHandler(err => {
+          const header = document.getElementById('resultsHeader');
+          header.textContent = "Comparison Results for current project";
+        })
+        .getProjectSheetName(); // your server-side function
+
       function displayResults(mismatches) {
+        document.getElementById('upload-card').style.display = 'none';
+        document.getElementById('resultsCard').style.display = 'block';
         document.getElementById('loading').style.display = 'none';
 
         if (!mismatches || mismatches.length === 0) {
@@ -177,43 +249,90 @@
           return;
         }
 
-        let html = '<table><tr><th>IP Address</th><th>Master Name</th><th>UniFi Name</th><th>OVRC Name</th><th>Master MAC</th><th>UniFi MAC</th><th>OVRC MAC</th></tr>';
+        let html = `<table>
+          <thead>
+            <tr>
+              <th>IP Address</th>
+              <th>Master Name</th>
+              <th>UniFi Name</th>
+              <th>OVRC Name</th>
+              <th>Master MAC</th>
+              <th>UniFi MAC</th>
+              <th>OVRC MAC</th>
+            </tr>
+          </thead>
+          <tbody>`;
 
-        mismatches.forEach(r => {
-          html += `<tr style="background-color:${getColor(r, 'master')}">
-            <td>${r.ip}</td>
-            <td style="background-color:${getColor(r,'master')}">${r.m.name}</td>
-            <td style="background-color:${getColor(r,'u')}">${r.u?.name ?? ''}</td>
-            <td style="background-color:${getColor(r,'o')}">${r.o?.name ?? ''}</td>
-            <td style="background-color:${getColor(r,'master')}">${r.m.mac}</td>
-            <td style="background-color:${getColor(r,'u')}">${r.u?.mac ?? ''}</td>
-            <td style="background-color:${getColor(r,'o')}">${r.o?.mac ?? ''}</td>
+        mismatches.forEach(row => {
+          html += `<tr>
+            <td>${row.ip}</td>
+            <td style="background:${getColor(row,'master','name')}">${row.m.name}</td>
+            <td style="background:${getColor(row,'u','name')}">${row.u?.name ?? ''}</td>
+            <td style="background:${getColor(row,'o','name')}">${row.o?.name ?? ''}</td>
+            <td style="background:${getColor(row,'master','mac')}">${row.m.mac}</td>
+            <td style="background:${getColor(row,'u','mac')}">${row.u?.mac ?? ''}</td>
+            <td style="background:${getColor(row,'o','mac')}">${row.o?.mac ?? ''}</td>
           </tr>`;
         });
 
-        html += '</table>';
+        html += `</tbody></table>`;
         document.getElementById('results').innerHTML = html;
+
+        document.querySelectorAll('#results tbody tr').forEach(row => {
+          row.addEventListener('click', () => {
+            document.querySelectorAll('#results tbody tr')
+              .forEach(r => r.classList.remove('highlight'));
+            row.classList.add('highlight');
+          });
+        });
       }
 
-      function getColor(row, type) {
+      // Color logic
+      function getColor(row, type, field) {
         const COLORS = {
           master: '#cfe2f3',
-          match:  '#cfe2f3',
+          match: '#cfe2f3',
           mismatch: '#f4cccc',
           missing: '#fff2cc'
         };
 
         if (type === 'master') return COLORS.master;
-        if (type === 'u') {
-          if (!row.u) return COLORS.missing;
-          return (row.u.name === row.m.name && row.u.mac === row.m.mac) ? COLORS.match : COLORS.mismatch;
+
+        const ref = type === 'u' ? row.u : row.o;
+        if (!ref) return COLORS.missing;
+
+        if (field === 'name') {
+          if (!ref.name) return COLORS.missing;
+          return ref.name.trim() === row.m.name.trim()
+            ? COLORS.match
+            : COLORS.mismatch;
         }
-        if (type === 'o') {
-          if (!row.o) return COLORS.missing;
-          return (row.o.name === row.m.name && row.o.mac === row.m.mac) ? COLORS.match : COLORS.mismatch;
+
+        if (field === 'mac') {
+          if (!ref.mac) return COLORS.missing;
+          const m = (row.m.mac || '').toUpperCase().replace(/[^0-9A-F]/g,'');
+          const r = (ref.mac || '').toUpperCase().replace(/[^0-9A-F]/g,'');
+          return m === r ? COLORS.match : COLORS.mismatch;
         }
-        return '';
       }
+
+      // === Row highlight CSS (inject once) ===
+      const style = document.createElement('style');
+      style.innerHTML = `
+        .highlight td {
+          border-top: 2px solid #000000;
+          border-bottom: 2px solid #000000;
+        }
+
+        .highlight td:first-child {
+          border-left: 2px solid #000000;
+        }
+
+        .highlight td:last-child {
+          border-right: 2px solid #000000;
+        }
+      `;
+      document.head.appendChild(style);
     </script>
   </body>
 </html>
