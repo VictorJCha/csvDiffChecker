@@ -5,6 +5,21 @@ const REQUIRED_HEADERS = {
 };
 
 /***********************
+ * Web App
+ ***********************/
+const DATA_SPREADSHEET_ID = '1vPnmjI65gultvQBvvZie7ftjzuWSs-SxHGBudvA0kd8'; // replace with your copied spreadsheet ID
+
+function getDataSheet() {
+  return SpreadsheetApp.openById(DATA_SPREADSHEET_ID);
+}
+
+function doGet(e) {
+  // Serve the same HTML dialog you use for the file upload
+  return HtmlService.createHtmlOutputFromFile('UploadDialog')
+      .setTitle('Network CSV Comparison');
+}
+
+/***********************
  * MENU
  ***********************/
 function onOpen() {
@@ -166,6 +181,14 @@ function showUploadDialog() {
 }
 
 /***********************
+ * WEB APP FILE PROCESSOR
+ ***********************/
+function processFilesForWeb(files) {
+  const mismatches = processFiles(files); // your existing function
+  return mismatches;
+}
+
+/***********************
  * MAIN ENTRY
  ***********************/
 function processFiles(files) {
@@ -188,6 +211,7 @@ function processFiles(files) {
 
   // Pass to writeMismatches
   writeMismatches(mismatches, masterFileName);
+  return mismatches;
 }
 
 /***********************
@@ -420,7 +444,7 @@ function getOrCreateOutputSheet(ss, sheetName) {
 }
 
 function writeMismatches(rows, masterFileName) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = getDataSheet();
 
   // Extract site name before "CSV" in filename
     const sheetName = getProjectSheetName(masterFileName);
@@ -518,16 +542,7 @@ function setCellStatus(range, status) {
  * RESET SPREADSHEET
  ***********************/
 function resetNetworkSheet() {
-  const ui = SpreadsheetApp.getUi();
-  const response = ui.alert(
-    'Reset Network Spreadsheet',
-    'This will reset the spreadsheet and delete all comparison tabs.\n\nThis action cannot be undone. Continue?',
-    ui.ButtonSet.YES_NO
-  );
-
-  if (response !== ui.Button.YES) return;
-
-  const ss = SpreadsheetApp.getActive();
+  const ss = getDataSheet();
   let instructionsSheet = ss.getSheetByName('Instructions');
 
   // If Instructions sheet exists, just clear it
@@ -551,8 +566,6 @@ function resetNetworkSheet() {
 
   // Write instructions
   writeInstructions(instructionsSheet);
-
-  //ui.alert('Spreadsheet has been reset. Instructions have been restored.');
 }
 
 /***********************
