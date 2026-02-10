@@ -218,26 +218,18 @@
 
         Promise.all(readers).then(files => {
           google.script.run
-            .withSuccessHandler(displayResults)
+            .withSuccessHandler(result => {
+              // result now has mismatches + projectName
+              displayResults(result.mismatches);
+              const header = document.getElementById('resultsHeader');
+              header.textContent = `Comparison Results for ${result.projectName || "current project"}`;
+            })
             .withFailureHandler(err => {
-              document.getElementById('loading').style.display = 'none';
               alert(err.message || err);
             })
             .processFilesForWeb(files);
         });
       }
-
-      // Update the header dynamically
-      google.script.run
-        .withSuccessHandler(name => {
-          const header = document.getElementById('resultsHeader');
-          header.textContent = `Comparison Results for '${name || "current project"}'`;
-        })
-        .withFailureHandler(err => {
-          const header = document.getElementById('resultsHeader');
-          header.textContent = "Comparison Results for current project";
-        })
-        .getProjectSheetName(); // your server-side function
 
       function displayResults(mismatches) {
         document.getElementById('upload-card').style.display = 'none';
