@@ -155,28 +155,64 @@
     <div class="container">
       <!-- FILE UPLOAD CARD -->
       <div class="card" id="upload-card">
-        <h2>Network CSV Comparison</h2>
-        <p>Select the 3 CSV files to compare</p>
+        <h2 style="text-align:center;">Network CSV Comparison</h2>
 
-        <div class="file-wrapper">
-          <input type="file" id="files" accept=".csv" multiple>
+        <div class="upload-content" style="max-width: 550px; margin: 0 auto; text-align: left;">
+          <!-- Instructions -->
+          <ol style="padding-left:40px;">
+            <li>Upload the three CSV files using the button below:
+              <ul style="padding-left:30px;">
+                <li>Network Spreadsheet (Cantara Tools &gt; Export DHCP &gt; Export All)</li>
+                <li>UniFi CSV export (Client Devices &gt; DHCP Manager &gt; Export)</li>
+                <li>OVRC CSV export (Devices &gt; Download CSV)</li>
+              </ul>
+            </li>
+            <li>The script will compare devices by IP address.</li>
+            <li>A Table will be automatically generated showing any mismatches.</li>
+          </ol>
+
+          <!-- File input -->
+          <div class="file-wrapper" style="margin:12px 0px 20px 35px;">
+            <input type="file" id="files" accept=".csv" multiple>
+          </div>
+
+          <!-- Button -->
+          <button style="display: block; margin: 12px auto;" onclick="submitFiles()">Run Comparison</button>
         </div>
 
-        <button onclick="submitFiles()">Run Comparison</button>
-
-        <div id="loading">
+        <!-- Loading spinner -->
+        <div id="loading" style="display:none; text-align:center; margin-top:20px;">
           <div class="spinner"></div>
-          <div class="loading-text">Processing files…</div>
+          <div class="loading-text" id="loading-text">Processing files…</div>
         </div>
       </div>
+
 
       <!-- RESULTS SECTION -->
       <!-- Results + header -->
       <div class="card" id="resultsCard" style="display:none;">
-        <div class="header-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <h3 id="resultsHeader">Comparison Results</h3> <!-- Add an id here -->
-          <button onclick="resetApp()" style="width:120px;">Reset</button>
+      <div class="header-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <div id="resultsTitle" style="flex-shrink:0;">
+          <h3 id="resultsHeader">Comparison Results</h3>
         </div>
+        
+        <div style="margin-bottom:12px; text-align:center;">
+          <label style="font-weight:600;">Compare:</label>
+          <select onchange="toggleCompareMode(this.value)" style="margin-left:8px;">
+            <option value="all">All Columns</option>
+            <option value="names">Names Only</option>
+            <option value="macs">MACs Only</option>
+          </select>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button id="exportBtn" onclick="exportToSheet()">Export to Google Sheets</button>
+          <div id="exportLoading" style="display:none; width:220px; text-align:center;">
+            <div class="spinner"></div>
+            <div class="loading-text">Creating Google Sheet…</div>
+          </div>
+        </div>
+      </div>
 
         <!-- Color legend -->
         <div id="legend" style="display:flex; gap:15px; margin-bottom:10px; flex-wrap:wrap;">
@@ -215,16 +251,18 @@
             reader.readAsText(input.files[i]);
           }));
         }
-
+        
         Promise.all(readers).then(files => {
           google.script.run
             .withSuccessHandler(result => {
-              // result now has mismatches + projectName
+              document.getElementById('loading').style.display = 'none';
+
               displayResults(result.mismatches);
               const header = document.getElementById('resultsHeader');
               header.textContent = `Comparison Results for ${result.projectName || "current project"}`;
             })
             .withFailureHandler(err => {
+              document.getElementById('loading').style.display = 'none';
               alert(err.message || err);
             })
             .processFilesForWeb(files);
@@ -244,32 +282,51 @@
         let html = `<table>
           <thead>
             <tr>
-              <th>IP Address</th>
-              <th>Master Name</th>
-              <th>UniFi Name</th>
-              <th>OVRC Name</th>
-              <th>Master MAC</th>
-              <th>UniFi MAC</th>
-              <th>OVRC MAC</th>
+              <th class="ip">IP Address</th>
+              <th class="name-master">Master Name</th>
+              <th class="name-unifi">UniFi Name</th>
+              <th class="name-ovrc">OVRC Name</th>
+              <th class="mac-master">Master MAC</th>
+              <th class="mac-unifi">UniFi MAC</th>
+              <th class="mac-ovrc">OVRC MAC</th>
             </tr>
           </thead>
           <tbody>`;
 
         mismatches.forEach(row => {
           html += `<tr>
-            <td>${row.ip}</td>
-            <td style="background:${getColor(row,'master','name')}">${row.m.name}</td>
-            <td style="background:${getColor(row,'u','name')}">${row.u?.name ?? ''}</td>
-            <td style="background:${getColor(row,'o','name')}">${row.o?.name ?? ''}</td>
-            <td style="background:${getColor(row,'master','mac')}">${row.m.mac}</td>
-            <td style="background:${getColor(row,'u','mac')}">${row.u?.mac ?? ''}</td>
-            <td style="background:${getColor(row,'o','mac')}">${row.o?.mac ?? ''}</td>
+            <td class="ip">${row.ip}</td>
+
+            <td class="name-master" style="background:${getColor(row,'master','name')}">
+              ${row.m.name}
+            </td>
+
+            <td class="name-unifi" style="background:${getColor(row,'u','name')}">
+              ${row.u?.name ?? ''}
+            </td>
+
+            <td class="name-ovrc" style="background:${getColor(row,'o','name')}">
+              ${row.o?.name ?? ''}
+            </td>
+
+            <td class="mac-master" style="background:${getColor(row,'master','mac')}">
+              ${row.m.mac}
+            </td>
+
+            <td class="mac-unifi" style="background:${getColor(row,'u','mac')}">
+              ${row.u?.mac ?? ''}
+            </td>
+
+            <td class="mac-ovrc" style="background:${getColor(row,'o','mac')}">
+              ${row.o?.mac ?? ''}
+            </td>
           </tr>`;
         });
 
         html += `</tbody></table>`;
         document.getElementById('results').innerHTML = html;
 
+        // Row highlight click
         document.querySelectorAll('#results tbody tr').forEach(row => {
           row.addEventListener('click', () => {
             document.querySelectorAll('#results tbody tr')
@@ -277,6 +334,50 @@
             row.classList.add('highlight');
           });
         });
+
+        // Default view = show all columns
+        toggleCompareMode("all");
+      }
+
+      function toggleCompareMode(mode) {
+
+        const show = cls =>
+          document.querySelectorAll("." + cls)
+            .forEach(el => el.style.display = "");
+
+        const hide = cls =>
+          document.querySelectorAll("." + cls)
+            .forEach(el => el.style.display = "none");
+
+        // Always visible
+        show("ip");
+        show("name-master");
+
+        if (mode === "all") {
+          show("name-unifi");
+          show("name-ovrc");
+          show("mac-master");
+          show("mac-unifi");
+          show("mac-ovrc");
+        }
+
+        if (mode === "names") {
+          show("name-unifi");
+          show("name-ovrc");
+
+          hide("mac-master");
+          hide("mac-unifi");
+          hide("mac-ovrc");
+        }
+
+        if (mode === "macs") {
+          show("mac-master");
+          show("mac-unifi");
+          show("mac-ovrc");
+
+          hide("name-unifi");
+          hide("name-ovrc");
+        }
       }
 
       // Color logic
@@ -325,6 +426,35 @@
         }
       `;
       document.head.appendChild(style);
+
+      function exportToSheet() {
+        const btn = document.getElementById("exportBtn");
+        const spinner = document.getElementById("exportLoading");
+
+        // Swap button → spinner
+        btn.style.display = "none";
+        spinner.style.display = "block";
+
+        google.script.run
+          .withSuccessHandler(url => {
+            // Swap back
+            spinner.style.display = "none";
+            btn.style.display = "block";
+
+            if (!url) {
+              alert('Failed to create Google Sheet.');
+              return;
+            }
+
+            window.open(url, '_blank');
+          })
+          .withFailureHandler(err => {
+            spinner.style.display = "none";
+            btn.style.display = "block";
+            alert(err.message || err);
+          })
+          .exportResultsToSheet();
+      }
     </script>
   </body>
 </html>
