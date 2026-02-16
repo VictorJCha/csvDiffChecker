@@ -1,8 +1,10 @@
 const REQUIRED_HEADERS = {
-  NETWORK: ["OVRC Name", "IP", "MAC Address", "VLAN"],
+  NETWORK: ["OVRC Name", "IP", "MAC Address"],
   UNIFI: ["Name", "IP Address", "MAC Address", "Expiration Time"],
   OVRC: ["Device Name", "IP Address", "MAC Address", "Status", "Monitored"]
 };
+
+const OUTPUT_FOLDER_ID = '1_w3Tj_fTvcwXJNAnpZ_uIHxZHstvG2fz';
 
 /***********************
  * Web App
@@ -17,8 +19,14 @@ function doGet(e) {
  * WEB APP FILE PROCESSOR
  ***********************/
 function processFilesForWeb(files) {
-  const mismatches = processFiles(files); // your existing function
-  return mismatches;
+  const result = processFiles(files);
+
+  const props = PropertiesService.getScriptProperties();
+
+  props.setProperty('LAST_RESULTS', JSON.stringify(result.mismatches));
+  props.setProperty('LAST_PROJECT', result.projectName || 'Current Project');
+
+  return result;
 }
 
 /***********************
@@ -272,4 +280,150 @@ function compareByIp(masterCsv, unifiCsv, ovrcCsv) {
   });
 
   return uniqueMismatches;
+}
+
+/***********************
+ * EXPORT
+ ***********************/
+function exportResultsToSheet() {
+  const props = PropertiesService.getScriptProperties();
+
+  const rawResults = props.getProperty('LAST_RESULTS');
+  if (!rawResults) {
+    throw new Error('No comparison results found. Run the comparison first.');
+  }
+
+  const results = JSON.parse(rawResults);
+  const projectName = props.getProperty('LAST_PROJECT') || 'Current Project';
+
+  /************* TIMESTAMP *************/
+  const now = new Date();
+  const tz = Session.getScriptTimeZone();
+
+  const datePart = Utilities.formatDate(now, tz, "MMddyyyy");
+  const timePart = Utilities.formatDate(now, tz, "HHmmss");
+
+  const timestamp = `${datePart} ${timePart}`;
+
+  const ss = SpreadsheetApp.create(
+    `Comparison Results - ${projectName} (${timestamp})`
+  );
+
+
+  const sheet = ss.getActiveSheet();
+
+  const COLORS = {
+    MASTER: '#cfe2f3',
+    MATCH: '#cfe2f3',
+    MISMATCH: '#f4cccc',
+    MISSING: '#fff2cc'
+  };
+
+  const headers = [
+    'IP Address',
+    'Master Name',
+    'UniFi Name',
+    'OVRC Name',
+    'Master MAC',
+    'UniFi MAC',
+    'OVRC MAC'
+  ];
+
+  const values = results.map(r => [
+    r.ip,
+    r.m.name,
+    r.u?.name || '',
+    r.o?.name || '',
+    r.m.mac,
+    r.u?.mac || '',
+    r.o?.mac || ''
+  ]);
+
+  const totalRows = values.length + 1;
+  const totalCols = headers.length;
+
+  /************* FORCE PLAIN TEXT *************/
+  sheet.getRange(1, 1, totalRows, totalCols).setNumberFormat('@');
+
+  /************* WRITE HEADER *************/
+  sheet.getRange(1, 1, 1, headers.length)
+       .setValues([headers])
+       .setFontWeight('bold')
+       .setBackground('#000000')
+       .setFontColor('#ffffff')
+       .setHorizontalAlignment('center'); // CENTER HEADER ONLY
+
+  /************* WRITE DATA *************/
+  sheet.getRange(2, 1, values.length, values[0].length)
+       .setValues(values);
+
+  /************* COLUMN WIDTHS *************/
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 300);
+  sheet.setColumnWidth(3, 300);
+  sheet.setColumnWidth(4, 300);
+  sheet.setColumnWidth(5, 255);
+  sheet.setColumnWidth(6, 255);
+  sheet.setColumnWidth(7, 255);
+
+  sheet.setFrozenRows(1);
+
+  /************* APPLY COLORS *************/
+  results.forEach((r, i) => {
+    const row = i + 2;
+
+    sheet.getRange(row, 2).setBackground(COLORS.MASTER);
+    sheet.getRange(row, 5).setBackground(COLORS.MASTER);
+
+    applyCellColor(sheet.getRange(row, 3), r.m.name, r.u?.name);
+    applyCellColor(sheet.getRange(row, 4), r.m.name, r.o?.name);
+
+    applyMacColor(sheet.getRange(row, 6), r.m.mac, r.u?.mac);
+    applyMacColor(sheet.getRange(row, 7), r.m.mac, r.o?.mac);
+  });
+
+  /************* MOVE FILE TO OUTPUT FOLDER *************/
+  const file = DriveApp.getFileById(ss.getId());
+  const folder = DriveApp.getFolderById(OUTPUT_FOLDER_ID);
+  folder.addFile(file);
+  DriveApp.getRootFolder().removeFile(file);
+
+  return ss.getUrl();
+}
+
+
+function applyCellColor(cell, masterValue, compareValue) {
+  const COLORS = {
+    MATCH: '#cfe2f3',
+    MISMATCH: '#f4cccc',
+    MISSING: '#fff2cc'
+  };
+
+  if (!compareValue) {
+    cell.setBackground(COLORS.MISSING);
+    return;
+  }
+
+  const a = normalizeName(masterValue);
+  const b = normalizeName(compareValue);
+
+  cell.setBackground(a === b ? COLORS.MATCH : COLORS.MISMATCH);
+}
+
+function applyMacColor(cell, masterMac, compareMac) {
+  const COLORS = {
+    MATCH: '#cfe2f3',
+    MISMATCH: '#f4cccc',
+    MISSING: '#fff2cc'
+  };
+
+  if (!compareMac) {
+    cell.setBackground(COLORS.MISSING);
+    return;
+  }
+
+  const m = normalizeMac(masterMac);
+  const c = normalizeMac(compareMac);
+
+  cell.setBackground(m === c ? COLORS.MATCH : COLORS.MISMATCH);
 }
