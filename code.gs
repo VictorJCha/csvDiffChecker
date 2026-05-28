@@ -1,7 +1,7 @@
 const REQUIRED_HEADERS = {
   NETWORK: ["OVRC Name", "IP", "MAC Address"],
   UNIFI: ["Name", "IP Address", "MAC Address", "Expiration Time"],
-  OVRC: ["Device Name", "IP Address", "MAC Address", "Status", "Monitored"]
+  OVRC: ["Device Name", "IP Address", "MAC Address", "Status"]
 };
 
 const OUTPUT_FOLDER_ID = '1_w3Tj_fTvcwXJNAnpZ_uIHxZHstvG2fz';
@@ -367,6 +367,7 @@ function exportResultsToSheet() {
   sheet.setColumnWidth(7, 255);
 
   sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
 
   /************* APPLY COLORS *************/
   results.forEach((r, i) => {
@@ -383,10 +384,7 @@ function exportResultsToSheet() {
   });
 
   /************* MOVE FILE TO OUTPUT FOLDER *************/
-  const file = DriveApp.getFileById(ss.getId());
-  const folder = DriveApp.getFolderById(OUTPUT_FOLDER_ID);
-  folder.addFile(file);
-  DriveApp.getRootFolder().removeFile(file);
+  DriveApp.getFileById(ss.getId()).moveTo(DriveApp.getFolderById(OUTPUT_FOLDER_ID));
 
   return ss.getUrl();
 }
